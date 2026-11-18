@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Omni Video Studio</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" type="module"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand"><span class="brand-icon" aria-hidden="true">▶</span> Omni Video</div>
+      <span class="connection"><i aria-hidden="true"></i> OpenRouter</span>
+    </div>
+  </header>
+  <main>
+    <header class="page-header">
+      <h1>Video Studio</h1>
+      <p>Generate a clip from a prompt, frames, or media references.</p>
+    </header>
+    <p class="notice" id="setup" role="status" hidden></p>
+
+    <div class="workspace">
+      <form class="panel" id="generation">
+        <div class="section model-section">
+          <label for="model">Model</label>
+          <select id="model" disabled><option>Loading models…</option></select>
+          <small id="model-info"></small>
+        </div>
+
+        <div class="section">
+          <div class="field">
+            <label for="input-mode">Workflow</label>
+            <select id="input-mode" disabled><option>Loading workflows…</option></select>
+          </div>
+          <div class="field">
+            <label for="prompt">Prompt <small id="prompt-optional" hidden>Optional</small></label>
+            <textarea id="prompt" maxlength="10000" rows="5"></textarea>
+          </div>
+
+          <div id="references-fields" class="uploads" hidden>
+            <label for="references">Add reference images</label>
+            <input type="file" id="references" accept="image/jpeg,image/png,image/webp" multiple>
+            <small>PNG, JPEG, or WebP · 10 MB total</small>
+            <div class="link-fields">
+              <label for="reference-url">Add media by link</label>
+              <div class="link-row">
+                <select id="reference-kind" aria-label="Media type"></select>
+                <input type="text" inputmode="url" id="reference-url" aria-label="HTTPS media link" placeholder="https://…">
+                <button type="button" class="secondary" id="add-reference">Add</button>
+              </div>
+              <small id="reference-hint"></small>
+            </div>
+            <ul id="reference-list" class="reference-list" aria-label="Selected references" hidden></ul>
+            <p class="feedback error" id="reference-error" role="alert" hidden></p>
+          </div>
+          <div id="frames-fields" class="uploads frames" hidden>
+            <div>
+              <label for="first-frame">Start frame</label>
+              <input type="file" id="first-frame" accept="image/jpeg,image/png,image/webp">
+            </div>
+            <div>
+              <label for="last-frame">End frame</label>
+              <input type="file" id="last-frame" accept="image/jpeg,image/png,image/webp">
+            </div>
+            <small id="frame-hint"></small>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="settings">
+            <label>Duration <select id="duration" disabled><option>Loading…</option></select></label>
+            <label>Aspect ratio <select id="aspect-ratio" disabled><option>Loading…</option></select></label>
+            <label>Resolution <select id="resolution" disabled><option>Loading…</option></select></label>
+          </div>
+          <label class="audio"><input type="checkbox" id="audio" checked> Generate audio</label>
+          <details class="advanced">
+            <summary>Advanced settings</summary>
+            <label for="seed">Seed</label>
+            <input type="number" step="1" id="seed" placeholder="Random">
+            <small>Reuse a seed and settings for similar results. Exact repeats depend on the provider.</small>
+          </details>
+        </div>
+        <div class="section form-footer">
+          <div>
+            <small>Estimated OpenRouter cost</small>
+            <output id="estimate" for="model duration resolution aspect-ratio"></output>
+          </div>
+          <button type="submit" id="generate" disabled>Generate video <span aria-hidden="true">↗</span></button>
+          <p id="form-error" class="feedback error" role="alert" hidden></p>
+        </div>
+      </form>
+
+      <section class="panel output" aria-labelledby="output-heading">
+        <div class="output-header">
+          <h2 id="output-heading">Preview</h2>
+          <span id="format"></span>
+        </div>
+        <div class="stage" id="stage" aria-busy="false">
+          <div class="screen" id="screen">
+            <span class="screen-icon" aria-hidden="true"></span>
+            <p id="stage-message" role="status">Your video will appear here</p>
+          </div>
+          <video id="preview" aria-label="Generated video" controls playsinline hidden></video>
+        </div>
+        <p class="feedback" id="job-status" role="status" hidden></p>
+        <div class="actions">
+          <a id="download" class="button" download hidden>Download MP4</a>
+          <button type="button" id="retry" class="secondary" hidden>Check again</button>
+          <small id="cost" hidden></small>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
