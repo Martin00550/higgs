@@ -4,7 +4,7 @@ A local browser studio for Gemini Omni 1.2 Flash and Seedance 2.5 on OpenRouter.
 
 1. Keep your existing `.env` in this folder, or create it with `OPENROUTER_API_KEY=your-key`. You can also set the key in the environment before starting the app.
 2. Double-click `Start Omni Video.cmd` or run `node server.mjs` in this folder.
-3. Open [Omni Video](http://127.0.0.1:8793) and keep the launcher window open while you use it.
+3. The Windows launcher opens the app in your browser. If you started it from the terminal, open the URL it prints. Keep the launcher or terminal open while you use the app. The default is [port 8793](http://127.0.0.1:8793), and the app picks a free local port when 8793 is occupied.
 
 ## Workflows
 

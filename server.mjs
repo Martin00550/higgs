@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -13,7 +14,7 @@ try {
 const key = process.env.OPENROUTER_API_KEY?.trim();
 const host = '127.0.0.1';
 const port = Number(process.env.OMNI_PORT || 8793);
-const origin = `http://${host}:${port}`;
+let origin;
 const videos = 'https://openrouter.ai/api/v1/videos';
 const assets = new Map([
   ['/', ['index.html', 'text/html']],
@@ -152,7 +153,7 @@ const server = createServer(async (req, res) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'");
 
   try {
-    if (req.headers.host !== `${host}:${port}`) throw new RequestError(403, 'Open the app at its local address.');
+    if (req.headers.host !== new URL(origin).host) throw new RequestError(403, 'Open the app at its local address.');
     const { pathname } = new URL(req.url, origin);
     const asset = assets.get(pathname);
     if (req.method === 'GET' && asset) {
@@ -202,4 +203,31 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(port, host, () => console.log(`Omni Video is running at ${origin}`));
+let usingFallbackPort = false;
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE' && !usingFallbackPort) {
+    usingFallbackPort = true;
+    console.log(`Port ${port} is busy. Starting Omni Video on a free port.`);
+    server.listen(0, host);
+    return;
+  }
+  console.error(`Could not start Omni Video: ${error.message}`);
+  process.exitCode = 1;
+});
+
+server.once('listening', () => {
+  origin = `http://${host}:${server.address().port}`;
+  console.log(`Omni Video is running at ${origin}`);
+  if (process.platform === 'win32' && process.argv.includes('--open')) {
+    const browser = spawn('explorer.exe', [origin], { detached: true, stdio: 'ignore', windowsHide: true });
+    browser.on('error', () => console.log(`Open ${origin} in your browser.`));
+    browser.unref();
+  }
+});
+
+if (Number.isInteger(port) && port >= 0 && port <= 65535) {
+  server.listen(port, host);
+} else {
+  console.error('OMNI_PORT must be a whole number from 0 to 65535.');
+  process.exitCode = 1;
+}
