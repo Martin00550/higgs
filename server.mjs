@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { GEMINI, imageTypes, models, referenceLimit } from './models.mjs';
+import { GEMINI, imageTypes, models, referenceLimit, videoType } from './models.mjs';
 
 try {
   process.loadEnvFile(new URL('.env', import.meta.url));
@@ -47,7 +47,7 @@ async function parseBody(req) {
     size += chunk.length;
     if (size > 15 * 1024 * 1024) {
       req.resume();
-      throw new RequestError(413, 'The request is too large. Use smaller images or HTTPS links.');
+      throw new RequestError(413, 'The request is too large. Use smaller files or direct HTTPS links.');
     }
     chunks.push(chunk);
   }
@@ -62,10 +62,11 @@ function mediaReference(kind, url) {
   if (typeof url !== 'string') throw new RequestError(400, 'Add a valid reference.');
   const https = url.length <= 8192 ? URL.parse(url) : null;
   const isHttps = https?.protocol === 'https:' && !https.username && !https.password;
-  const isImageUpload = kind === 'image' && imageTypes.some((type) => url.startsWith(`data:${type};base64,`)) &&
-    /^[A-Za-z0-9+/]+=*$/.test(url.slice(url.indexOf(',') + 1));
-  if (!isHttps && !isImageUpload) {
-    throw new RequestError(400, 'Use a direct HTTPS media link or upload a PNG, JPEG, or WebP image.');
+  const uploadTypes = kind === 'image' ? imageTypes : kind === 'video' ? [videoType] : [];
+  const isUpload = uploadTypes.some((type) => url.startsWith(`data:${type};base64,`)) &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(url.slice(url.indexOf(',') + 1));
+  if (!isHttps && !isUpload) {
+    throw new RequestError(400, 'Use a direct HTTPS media link or upload a supported image or MP4.');
   }
   const field = `${kind}_url`;
   return { type: field, [field]: { url } };
@@ -73,7 +74,7 @@ function mediaReference(kind, url) {
 
 function generationPayload(body) {
   const { model = GEMINI, prompt, duration, resolution, aspectRatio, audio,
-    references, firstFrame, lastFrame, seed } = body ?? {};
+    references, firstFrame, lastFrame, seed, workflow } = body ?? {};
   if (!Object.hasOwn(models, model)) throw new RequestError(400, 'Choose a supported model.');
   const config = models[model];
   if (typeof prompt !== 'string' || prompt.length > 10000 || (!prompt.trim() && !firstFrame && !lastFrame)) {
@@ -112,6 +113,14 @@ function generationPayload(body) {
   if (firstFrame) frames.push({ ...mediaReference('image', firstFrame), frame_type: 'first_frame' });
   if (lastFrame) frames.push({ ...mediaReference('image', lastFrame), frame_type: 'last_frame' });
   if (frames.length) payload.frame_images = frames;
+
+  const hasVideo = payload.input_references?.some(({ type }) => type === 'video_url');
+  const sourceWorkflow = workflow === 'edit' || workflow === 'extend';
+  if (sourceWorkflow && !hasVideo) throw new RequestError(400, 'Add a source video to edit or extend.');
+  if (model === GEMINI && hasVideo) {
+    const task = sourceWorkflow ? workflow : 'reference_to_video';
+    payload.provider = { options: { 'google-ai-studio': { task } } };
+  }
   return payload;
 }
 

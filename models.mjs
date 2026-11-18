@@ -8,7 +8,7 @@ export const models = {
     durations: Array.from({ length: 13 }, (_, index) => index + 3),
     resolutions: ['360p', '720p', '1080p', '4K'],
     ratios: ['16:9', '9:16'],
-    referenceTypes: ['image'],
+    referenceTypes: ['image', 'video'],
   },
   [SEEDANCE]: {
     name: 'Seedance 2.5',
@@ -21,6 +21,7 @@ export const models = {
 };
 
 export const imageTypes = ['image/jpeg', 'image/png', 'image/webp'];
+export const videoType = 'video/mp4';
 export const localUploadLimit = 10 * 1024 * 1024;
 export const referenceLimit = 50;
 

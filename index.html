@@ -42,7 +42,11 @@
           <div id="references-fields" class="uploads" hidden>
             <label for="references">Add reference images</label>
             <input type="file" id="references" accept="image/jpeg,image/png,image/webp" multiple>
-            <small>PNG, JPEG, or WebP · 10 MB total</small>
+            <div class="field video-upload">
+              <label for="video-references">Add MP4 reference clips</label>
+              <input type="file" id="video-references" accept="video/mp4,.mp4" multiple>
+            </div>
+            <small>PNG, JPEG, WebP, or MP4 · 10 MB total across uploads</small>
             <div class="link-fields">
               <label for="reference-url">Add media by link</label>
               <div class="link-row">

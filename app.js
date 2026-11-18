@@ -1,4 +1,4 @@
-const { GEMINI, SEEDANCE, estimateCost, imageTypes, localUploadLimit, models, referenceLimit } =
+const { GEMINI, SEEDANCE, estimateCost, imageTypes, videoType, localUploadLimit, models, referenceLimit } =
   await import('./models.mjs').catch((error) => {
     const setup = document.getElementById('setup');
     setup.textContent = 'The studio could not load its model settings. Restart Omni Video, then refresh this page.';
@@ -14,7 +14,6 @@ const referenceKind = byId('reference-kind');
 const referenceUrl = byId('reference-url');
 const referenceList = byId('reference-list');
 const referenceError = byId('reference-error');
-const referenceInput = byId('references');
 const generate = byId('generate');
 const stage = byId('stage');
 const stageMessage = byId('stage-message');
@@ -114,8 +113,8 @@ function updateMode() {
   fillOptions(referenceKind, models[modelSelect.value].referenceTypes.map((kind) => [kind, kind[0].toUpperCase() + kind.slice(1)]));
   if (needsVideo) referenceKind.value = 'video';
   byId('reference-hint').textContent = needsVideo
-    ? 'Add a direct HTTPS link to the source video.'
-    : 'Use a direct HTTPS URL OpenRouter can access.';
+    ? 'Upload the source MP4, or add a direct HTTPS link to the video.'
+    : 'Paste a direct media link that OpenRouter can access.';
   display(referenceError, '');
   renderReferences();
 }
@@ -123,12 +122,12 @@ function updateMode() {
 function updateModel() {
   const model = models[modelSelect.value];
   const isSeedance = modelSelect.value === SEEDANCE;
-  const choices = ['none', 'frames', 'references', ...(isSeedance ? ['edit', 'extend'] : [])];
+  const choices = Object.keys(workflows);
   fillOptions(mode, choices.map((value) => [value, workflows[value][0]]));
   fillOptions(byId('duration'), model.durations.map((seconds) => [seconds, seconds === -1 ? 'Auto' : `${seconds} s`]), 5);
   fillOptions(byId('resolution'), model.resolutions.map((resolution) => [resolution, resolution]), '720p');
   fillOptions(byId('aspect-ratio'), model.ratios.map((ratio) => [ratio, ratio]));
-  byId('model-info').textContent = isSeedance ? '4–30 seconds · image, video, and audio references' : '3–15 seconds · image references · up to 4K';
+  byId('model-info').textContent = isSeedance ? '4–30 seconds · image, video, and audio references' : '3–15 seconds · image and video references · up to 4K';
   localStorage.setItem(modelStorageKey, modelSelect.value);
   updateMode();
 }
@@ -148,10 +147,13 @@ async function request(path, options) {
   return response;
 }
 
-function readImage(file) {
+function readUpload(file, kind = 'image') {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
+    reader.onload = () => {
+      const url = reader.result;
+      resolve(kind === 'video' ? `data:${videoType};base64,${url.slice(url.indexOf(',') + 1)}` : url);
+    };
     reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
     reader.readAsDataURL(file);
   });
@@ -186,26 +188,39 @@ referenceUrl.addEventListener('keydown', (event) => {
   }
 });
 
-referenceInput.addEventListener('change', () => {
-  const files = [...referenceInput.files];
-  referenceInput.value = '';
-  display(referenceError, '');
-  try {
-    validateImages([...references.map(({ file }) => file).filter(Boolean), ...files]);
-    if (references.length + files.length > referenceLimit) throw new Error(`Use up to ${referenceLimit} references.`);
-    references.push(...files.map((file) => ({ kind: 'image', file, thumbnail: URL.createObjectURL(file) })));
-    renderReferences();
-  } catch (error) {
-    display(referenceError, error.message, true);
-  }
-});
+for (const [id, kind] of [['references', 'image'], ['video-references', 'video']]) {
+  const input = byId(id);
+  input.addEventListener('change', () => {
+    const files = [...input.files];
+    input.value = '';
+    display(referenceError, '');
+    try {
+      if (kind === 'image') validateImages(files);
+      else if (files.some((file) => !file.size || (file.type !== videoType && (file.type || !/\.mp4$/i.test(file.name))))) {
+        throw new Error('Select a nonempty MP4 video.');
+      }
+      validateUploadSize([...references.map(({ file }) => file).filter(Boolean), ...files]);
+      if (references.length + files.length > referenceLimit) throw new Error(`Use up to ${referenceLimit} references.`);
+      references.push(...files.map((file) => ({
+        kind, file, thumbnail: kind === 'image' ? URL.createObjectURL(file) : undefined,
+      })));
+      renderReferences();
+    } catch (error) {
+      display(referenceError, error.message, true);
+    }
+  });
+}
 
 function validateImages(files) {
   if (files.some((file) => !imageTypes.includes(file.type) || !file.size)) {
     throw new Error('Select valid PNG, JPEG, or WebP images.');
   }
+  validateUploadSize(files);
+}
+
+function validateUploadSize(files) {
   if (files.reduce((total, file) => total + file.size, 0) > localUploadLimit) {
-    throw new Error('Use up to 10 MB of uploaded images per generation.');
+    throw new Error('Use up to 10 MB of uploads per generation. For a larger clip, use a direct HTTPS link.');
   }
 }
 
@@ -218,7 +233,7 @@ async function getSettings() {
   if (!prompt && !first && !last) throw new Error('Enter a prompt or upload a frame.');
   if (mode.value === 'references' && !selected.length) throw new Error('Add at least one reference.');
   if (['edit', 'extend'].includes(mode.value) && !selected.some(({ kind }) => kind === 'video')) {
-    throw new Error('Add an HTTPS link to the source video.');
+    throw new Error('Upload the source MP4 or add a direct HTTPS video link.');
   }
   if (mode.value === 'frames' && !first && !last) throw new Error('Select a start or end frame.');
   if (last && !first && modelSelect.value === SEEDANCE) {
@@ -229,15 +244,15 @@ async function getSettings() {
   const seed = seedInput === '' ? undefined : Number(seedInput);
   if (seed !== undefined && !Number.isSafeInteger(seed)) throw new Error('Use a whole number for the seed.');
   const settings = {
-    prompt, model: modelSelect.value, seed,
+    prompt, model: modelSelect.value, seed, workflow: mode.value,
     duration: Number(byId('duration').value),
     aspectRatio: byId('aspect-ratio').value,
     resolution: byId('resolution').value,
     audio: byId('audio').checked,
   };
   const [media, firstFrame, lastFrame] = await Promise.all([
-    Promise.all(selected.map(async ({ kind, url, file }) => ({ kind, url: file ? await readImage(file) : url }))),
-    first && readImage(first), last && readImage(last),
+    Promise.all(selected.map(async ({ kind, url, file }) => ({ kind, url: file ? await readUpload(file, kind) : url }))),
+    first && readUpload(first), last && readUpload(last),
   ]);
   return { ...settings, references: media, firstFrame, lastFrame };
 }

@@ -10,10 +10,10 @@ A local browser studio for Gemini Omni 1.2 Flash and Seedance 2.5 on OpenRouter.
 
 - **Text to video** uses a prompt. Describe the subject, action, camera movement, and lighting.
 - **Start / end frames** places an image at a specific point in the clip. Seedance uses a start image and an optional end image.
-- **Reference to video** accepts image uploads or direct HTTPS image links. Seedance also accepts direct HTTPS audio and video links. Mention which details the model should take from each reference.
-- **Edit a video** and **Extend a video** use a Seedance video reference and your instructions. Add a direct HTTPS link that OpenRouter can access. Specify what to change or what happens next while keeping the desired details of the source.
+- **Reference to video** accepts images and video on both models. Upload an MP4, or select **Video** under **Add media by link** and paste a direct HTTPS video URL that OpenRouter can access. Seedance also accepts HTTPS audio references. Mention which details the model should take from each reference.
+- **Edit a video** and **Extend a video** take the source through the same video inputs. Specify what to change or what happens next while keeping the desired details of the source.
 
-Local PNG, JPEG, and WebP uploads have a 10 MB total limit per request. Settings follow the selected model. The Seedance API guide advertises 480p, 720p, and 1080p. The provider can reject combinations of inputs and settings. The app displays its error when that happens.
+Local PNG, JPEG, WebP, and MP4 uploads have a combined 10 MB limit per request. The app sends uploads inline to OpenRouter when you generate. For a larger clip or if the provider rejects inline video, use a direct HTTPS video link. Settings follow the selected model. The Seedance API guide advertises 480p, 720p, and 1080p. The app displays any provider errors.
 
 The preview panel shows the final charge when OpenRouter reports it. The pre-generation estimate uses published rates for Gemini or Seedance at 480p and 720p. OpenRouter calculates the charge for auto duration, video references, and Seedance 1080p.
 
