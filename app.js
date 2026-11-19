@@ -23,6 +23,9 @@ const preview = byId('preview');
 const download = byId('download');
 const cost = byId('cost');
 const jobStorageKey = 'omni-video.last-job';
+const pollStorageKey = 'omni-video.last-poll';
+const generationStorageKey = 'omni-video.last-generation';
+const submissionStorageKey = 'omni-video.submission';
 const formatStorageKey = 'omni-video.last-format';
 const modelStorageKey = 'omni-video.model';
 const references = [];
@@ -34,6 +37,8 @@ const workflows = {
   extend: ['Extend a video', 'Describe what happens next. Specify what should stay consistent from the source clip.'],
 };
 let jobId = localStorage.getItem(jobStorageKey);
+let pollId = localStorage.getItem(pollStorageKey);
+let pendingSubmission = JSON.parse(localStorage.getItem(submissionStorageKey) || 'null');
 let jobFormat = localStorage.getItem(formatStorageKey);
 let previewUrl;
 
@@ -114,7 +119,9 @@ function updateMode() {
   if (needsVideo) referenceKind.value = 'video';
   byId('reference-hint').textContent = needsVideo
     ? 'Upload the source MP4, or add a direct HTTPS link to the video.'
-    : 'Paste a direct media link that OpenRouter can access.';
+    : modelSelect.value === GEMINI && mode.value === 'references'
+      ? 'Gemini reference clips can be up to 3 seconds each. Upload an MP4 or paste a direct HTTPS media link.'
+      : 'Paste a direct media link that OpenRouter can access.';
   display(referenceError, '');
   renderReferences();
 }
@@ -142,7 +149,9 @@ async function request(path, options) {
   const response = await fetch(path, options);
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new Error(body?.error || `Request failed (HTTP ${response.status}).`);
+    const error = new Error(body?.error || `Request failed (HTTP ${response.status}).`);
+    error.status = response.status;
+    throw error;
   }
   return response;
 }
@@ -224,6 +233,27 @@ function validateUploadSize(files) {
   }
 }
 
+function readClipDuration(file) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    const url = URL.createObjectURL(file);
+    const finish = () => {
+      const duration = video.duration;
+      clearTimeout(timer);
+      video.onloadedmetadata = video.onerror = null;
+      video.removeAttribute('src');
+      video.load();
+      URL.revokeObjectURL(url);
+      if (Number.isFinite(duration) && duration > 0) resolve(duration);
+      else reject(new Error(`Could not read the duration of ${file.name}. Export it as a standard MP4 and add it again.`));
+    };
+    const timer = setTimeout(finish, 8000);
+    video.onloadedmetadata = video.onerror = finish;
+    video.preload = 'metadata';
+    video.src = url;
+  });
+}
+
 async function getSettings() {
   const prompt = byId('prompt').value.trim();
   if (usesReferences() && referenceUrl.value.trim()) addReferenceLink();
@@ -232,6 +262,16 @@ async function getSettings() {
   const last = mode.value === 'frames' ? byId('last-frame').files[0] : undefined;
   if (!prompt && !first && !last) throw new Error('Enter a prompt or upload a frame.');
   if (mode.value === 'references' && !selected.length) throw new Error('Add at least one reference.');
+  if (modelSelect.value === GEMINI && mode.value === 'references') {
+    const clips = selected.filter(({ kind }) => kind === 'video');
+    const maxClips = Number(byId('duration').value) > 10 ? 1 : 3;
+    if (clips.length > maxClips) throw new Error(`For this output duration, Gemini accepts up to ${maxClips} video reference(s).`);
+    for (const { file } of clips) {
+      if (!file) continue;
+      const seconds = await readClipDuration(file);
+      if (seconds > 3.000001) throw new Error(`${file.name} is ${seconds.toFixed(3)} seconds long. Trim this reference to 3 seconds or less, remove the original from the list, and add the shorter clip. Your output duration can stay the same.`);
+    }
+  }
   if (['edit', 'extend'].includes(mode.value) && !selected.some(({ kind }) => kind === 'video')) {
     throw new Error('Upload the source MP4 or add a direct HTTPS video link.');
   }
@@ -276,9 +316,10 @@ function resetPreview() {
 
 async function watchJob(id, job) {
   resetPreview();
+  byId('activity').hidden = true;
   display(cost, '');
   setBusy(true);
-  const path = `/api/jobs/${encodeURIComponent(id)}`;
+  const path = `/api/jobs/${encodeURIComponent(pollId || id)}`;
   try {
     stageMessage.textContent = 'Checking your video…';
     display(status, '');
@@ -300,7 +341,7 @@ async function watchJob(id, job) {
     if (job.status === 'completed') {
       stageMessage.textContent = 'Loading MP4…';
       if (Number.isFinite(job.cost)) display(cost, `OpenRouter cost $${job.cost.toFixed(4)}`);
-      const video = await (await request(`${path}/content`)).blob();
+      const video = await (await request(`/api/jobs/${encodeURIComponent(id)}/content`)).blob();
       if (!video.size) throw new Error('OpenRouter returned an empty video file.');
       previewUrl = URL.createObjectURL(video);
       preview.src = previewUrl;
@@ -314,11 +355,11 @@ async function watchJob(id, job) {
     }
     if (!['failed', 'cancelled', 'expired'].includes(job.status)) throw new Error(`Unexpected job status: ${job.status}`);
     stageMessage.textContent = `Generation ${job.status}.`;
-    display(status, job.error || `OpenRouter marked the job ${job.status}.`, true);
-    localStorage.removeItem(jobStorageKey);
-    localStorage.removeItem(formatStorageKey);
-    jobFormat = undefined;
-    updateEstimate();
+    const generationId = job.generationId || localStorage.getItem(generationStorageKey);
+    const detail = job.error && !/^video generation failed[.!]?$/i.test(job.error) ? job.error
+      : `OpenRouter marked this job ${job.status} and gave no further reason.`;
+    display(status, [detail, `Job ID ${id}`, generationId && `Generation ID ${generationId}`].filter(Boolean).join('\n'), true);
+    byId('activity').hidden = false;
   } catch (error) {
     stageMessage.textContent = 'Video unavailable.';
     display(status, `${error.message} Job ID ${id}`, true);
@@ -329,7 +370,63 @@ async function watchJob(id, job) {
   }
 }
 
-retry.addEventListener('click', () => watchJob(jobId));
+function clearSubmission() {
+  pendingSubmission = null;
+  localStorage.removeItem(submissionStorageKey);
+}
+
+async function watchSubmission(entry) {
+  const { id, format } = pendingSubmission;
+  setBusy(true);
+  generate.textContent = 'Waiting for OpenRouter…';
+  display(byId('form-error'), '');
+  let misses = 0;
+  try {
+    while (!entry || entry.status === 'submitting') {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      try {
+        entry = await (await request(`/api/submissions/${id}`)).json();
+        misses = 0;
+      } catch (error) {
+        if (++misses >= 3) throw error;
+      }
+    }
+
+    if (entry.status === 'accepted') {
+      const job = entry.job;
+      jobId = job.id;
+      pollId = job.pollId || job.id;
+      jobFormat = format;
+      localStorage.setItem(jobStorageKey, jobId);
+      localStorage.setItem(pollStorageKey, pollId);
+      if (job.generationId) localStorage.setItem(generationStorageKey, job.generationId);
+      else localStorage.removeItem(generationStorageKey);
+      localStorage.setItem(formatStorageKey, jobFormat);
+      clearSubmission();
+      updateEstimate();
+      generate.textContent = 'Generate video';
+      await watchJob(jobId, job);
+      return;
+    }
+    clearSubmission();
+    const activity = entry.status === 'unconfirmed' ? ' Check OpenRouter activity before submitting again.' : '';
+    display(byId('form-error'), `${entry.error || 'Submission failed.'}${activity}`, true);
+  } catch (error) {
+    if (error.status === 404) {
+      clearSubmission();
+      display(byId('form-error'), `${error.message} Check OpenRouter activity before submitting again.`, true);
+    } else {
+      display(byId('form-error'), `Could not check the existing submission. Use Check again to reconnect. ${error.message}`, true);
+      retry.hidden = false;
+    }
+  } finally {
+    generate.textContent = 'Generate video';
+    generate.disabled = Boolean(pendingSubmission);
+    stage.setAttribute('aria-busy', 'false');
+  }
+}
+
+retry.addEventListener('click', () => pendingSubmission ? watchSubmission() : watchJob(jobId));
 preview.addEventListener('error', () => {
   if (previewUrl) display(status, 'The browser could not play the preview. You can still download the MP4.', true);
 });
@@ -344,36 +441,48 @@ form.addEventListener('submit', async (event) => {
   try {
     const format = formatSettings();
     const settings = await getSettings();
-    const response = await request('/api/jobs', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings),
-    });
-    const job = await response.json();
-    jobId = job.id;
-    jobFormat = format;
-    localStorage.setItem(jobStorageKey, jobId);
-    localStorage.setItem(formatStorageKey, jobFormat);
-    updateEstimate();
-    generate.textContent = 'Generate video';
-    await watchJob(jobId, job);
+    const id = crypto.randomUUID();
+    pendingSubmission = { id, format };
+    localStorage.setItem(submissionStorageKey, JSON.stringify(pendingSubmission));
+    let entry;
+    try {
+      const response = await request('/api/jobs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...settings, submissionId: id }),
+      });
+      entry = await response.json();
+    } catch (error) {
+      if (error.status >= 400 && error.status < 500) {
+        clearSubmission();
+        throw error;
+      }
+    }
+    await watchSubmission(entry);
   } catch (error) {
     display(byId('form-error'), error.message, true);
   } finally {
     generate.textContent = 'Generate video';
-    generate.disabled = false;
+    generate.disabled = Boolean(pendingSubmission);
     retry.disabled = false;
   }
 });
 
 async function initialize() {
   try {
-    const { configured } = await (await request('/api/config')).json();
+    const { configured, referenceTypes, trackedSubmissions } = await (await request('/api/config')).json();
+    const matchingReferences = Object.entries(models).every(([id, model]) =>
+      model.referenceTypes.every((kind) => referenceTypes?.[id]?.includes(kind)));
+    if (!matchingReferences || !trackedSubmissions) {
+      display(byId('setup'), 'This page is connected to an older Omni Video server. Restart Omni Video and refresh this tab.', true);
+      return;
+    }
     if (!configured) {
       display(byId('setup'), 'Set OPENROUTER_API_KEY in the .env file next to server.mjs, then restart the app.');
       return;
     }
     document.querySelector('.connection').classList.add('ready');
-    if (jobId) await watchJob(jobId);
-    generate.disabled = false;
+    if (pendingSubmission) await watchSubmission();
+    else if (jobId) await watchJob(jobId);
+    generate.disabled = Boolean(pendingSubmission);
   } catch (error) {
     display(byId('setup'), error.message, true);
   }

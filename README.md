@@ -17,4 +17,4 @@ Local PNG, JPEG, WebP, and MP4 uploads have a combined 10 MB limit per request. 
 
 The preview panel shows the final charge when OpenRouter reports it. The pre-generation estimate uses published rates for Gemini or Seedance at 480p and 720p. OpenRouter calculates the charge for auto duration, video references, and Seedance 1080p.
 
-The most recent job can resume after a refresh in the same browser. Download the finished clip to keep a local copy. OpenRouter can expire jobs and their outputs.
+Refreshing the same browser tab during submission reconnects to the local receipt while the server keeps running. Once OpenRouter returns a job ID, the browser remembers it across app restarts. If OpenRouter times out before returning an ID, check its activity before submitting again. Download finished clips to keep a local copy.

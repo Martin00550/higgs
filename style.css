@@ -98,6 +98,7 @@ h2 { font-size: 1rem; font-weight: 650; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .actions:has(:not([hidden])) { margin-top: 12px; }
 .feedback { margin-top: 8px; overflow-wrap: anywhere; font-size: .88rem; }
+#job-status { white-space: pre-line; }
 .form-footer .feedback { grid-column: 1 / -1; margin-top: 0; }
 .notice { margin-bottom: 16px; padding: 10px 13px; border: 1px solid #715e3d; border-radius: 8px; color: #ffe1a7; }
 .error { color: #ffb3bb; }
